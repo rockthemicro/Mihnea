@@ -5,19 +5,17 @@
  */
 void USART0_init()
 {
-	/* porneste transmitatorul si receptorul */
-	UCSR0B = (1<<TXEN0) | (1<<RXEN0);
+	UCSR0A = 0x00;
+	
+	/* activeaza intreruperea la RXC0 */
+	UCSR0B |= (1<<RXCIE0);
 	
     /* seteaza baud rate la 115.2K */
     UBRR0H = 0;
     UBRR0L = 8;
-
-	/* seteaza baud rate la 9.6K */
-	//UBRR0H = 0;
-	//UBRR0L = 103;
     
-	/* selecteaza mod sincron */
-	UCSR0C |= (1<<UMSEL00);
+	/* selecteaza mod asincron */
+	UCSR0C &= ~(1<<UMSEL00);
 	UCSR0C &= ~(1<<UMSEL01);
 
     /* seteaza formatul frame-ului: 8 biti de date */
@@ -29,12 +27,10 @@ void USART0_init()
 	/* fara paritate */
 	UCSR0C &= ~(1<<UPM00);
     UCSR0C &= ~(1<<UPM01);
-}
-
-static void USART_flush(void)
-{
-	unsigned char dummy;
-	while (UCSR0A & (1<<RXC0)) dummy = UDR0;
+	
+	/* porneste transmitatorul si receptorul */
+	UCSR0B = (1<<TXEN0) | (1<<RXEN0);
+	
 }
 
 /*
