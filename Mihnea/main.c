@@ -36,28 +36,6 @@ void shift_left(char *v, int first, int last)
 	}
 }
 
-/* citire pana la primul >\r\n
- * > este semnul trimis de ESP inainte ca noi sa putem incepe
- * sa-i transmitem datele pentru un AT+CIPSEND
- */
-int read_until_bigger()
-{
-	char v[4] = "";
-	int cnt = 0;
-	
-	while (1) {
-		v[2] = USART0_receive();
-		cnt++;
-		
-		if (strcmp(v, ">\r\n") == 0)
-			return cnt;
-		
-		shift_left(v, 0, 4);
-	}
-	
-	return 0;
-}
-
 /* folosit pana la orice citire de OK\r\n */
 int read_until_ok()
 {
@@ -72,6 +50,33 @@ int read_until_ok()
 			return cnt;
 		
 		shift_left(v, 0, 4);
+	}
+	
+	return 0;
+}
+
+
+int generic_read_until(const char *word)
+{
+	char v[16] = "";
+	int cnt = 0;
+	unsigned int world_len = strlen(word);
+	
+	v[15] = '\0';
+	
+	if (world_len >= 16) {
+		LCD_printAt(0, "NASOL!");
+		LCD_printAt(64, "NASOL!");
+	}
+	
+	while (1) {
+		v[world_len - 1] = USART0_receive();
+		cnt++;
+		
+		if (strcmp(v, word) == 0)
+			return cnt;
+		
+		shift_left(v, 0, world_len);
 	}
 	
 	return 0;
@@ -117,6 +122,7 @@ void send_request()
 	read_until_ok();
 	
 	USART0_print(REQUEST);
+	/* citim pana la "SEND OK" */
 	read_until_ok();
 
 	/* daca ma intereseaza vreodata raspunsul serverului, in sectiunea asta
@@ -171,7 +177,34 @@ int main(void)
 	
 	LCD_printAt(0, "ok");
 	
+	int i = 0;
+	char request[256] = "";
+	unsigned int cnt = 0;
+	
 	while(1) {
+		generic_read_until("CONNECT\r\n");
+		
+		generic_read_until("GET ");
+		while (1) {
+			char c = USART0_receive();
+			if (c != ' ') {
+				request[cnt++] = c;
+			} else {
+				break;
+			}
+		}
+		request[cnt] = '\0';
+		LCD_printAt(0, request);
+		cnt = 0;
+		
+		read_until_2crlf();
+		
+		generic_read_until("CLOSED\r\n");
+		
+		char v[10];
+		i++;
+		sprintf(v, "%d", i);
+		LCD_printAt(64, v);
 	}
 }
 
