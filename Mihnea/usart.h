@@ -30,14 +30,4 @@ char USART0_receive();
  */
 void USART0_print(const char *data); 
 
-/*
- * Functie ce transmite un caracter prin USART
- *
- * @param data - caracterul de transmis
- * @param stream - nefolosit
- *
- * @return - intotdeauna returneaza 0
- */
-int USART0_printf(char data, FILE *stream);
-
 #endif // USART_H_

@@ -15,35 +15,139 @@
 #include <avr/interrupt.h>	/* Include avr interrupt header file */
 #include "usart.h"			/* Include USART header file */
 
+void send_request();
 
-static void USART_flush(void)
+ISR(PCINT1_vect)
 {
-	unsigned char dummy;
-	while (UCSR0A & (1<<RXC0)) {
-		LCD_printAt(0, "daaaa");
-		dummy = UDR0;
+	if ((PINB & (1<<PB2)) == 0) {
+		/* Inversam starea pinului. */
+		PORTD ^= (1 << PD7);
+		
+		send_request();
 	}
 }
 
-static int value = 0;
-static char vect[2] = "0";
+void shift_left(char *v, int first, int last)
+{
+	int i;
+	
+	for (i = 0; i < last - 1; i++) {
+		v[i] = v[i + 1];
+	}
+}
 
-ISR(USART0_RX_vect) {
-	value = UDR0;
+/* citire pana la primul >\r\n
+ * > este semnul trimis de ESP inainte ca noi sa putem incepe
+ * sa-i transmitem datele pentru un AT+CIPSEND
+ */
+int read_until_bigger()
+{
+	char v[4] = "";
+	int cnt = 0;
 	
-	vect[0] += 1;
-	LCD_printAt(0, vect);
+	while (1) {
+		v[2] = USART0_receive();
+		cnt++;
+		
+		if (strcmp(v, ">\r\n") == 0)
+			return cnt;
+		
+		shift_left(v, 0, 4);
+	}
 	
+	return 0;
+}
+
+/* folosit pana la orice citire de OK\r\n */
+int read_until_ok()
+{
+	char v[5] = "";
+	int cnt = 0;
+	
+	while (1) {
+		v[3] = USART0_receive();
+		cnt++;
+		
+		if (strcmp(v, "OK\r\n") == 0)
+			return cnt;
+		
+		shift_left(v, 0, 4);
+	}
+	
+	return 0;
+}
+
+/*
+ * folosit pana la citirea \r\n\r\n, pentru citirea completa a
+ * requesturilor http GET
+ */
+int read_until_2crlf()
+{
+	char v[5] = "";
+	int cnt = 0;
+	
+	while (1) {
+		v[3] = USART0_receive();
+		cnt++;
+		
+		if (strcmp(v, "\r\n\r\n") == 0)
+		return cnt;
+		
+		shift_left(v, 0, 4);
+	}
+	
+	return 0;	
+}
+
+#define REQUEST \
+"GET /api/salut HTTP/1.1\r\n\
+Host: 192.168.4.3:8080\r\n\r\n"
+
+#define REQUEST_LEN strlen(REQUEST)
+
+void send_request()
+{
+	char buf[64];
+	
+	USART0_print("AT+CIPSTART=0,\"TCP\",\"192.168.4.3\",8080\r\n");
+	read_until_ok();
+	
+	sprintf(buf, "AT+CIPSEND=0,%d\r\n", REQUEST_LEN);
+	USART0_print(buf);
+	read_until_ok();
+	
+	USART0_print(REQUEST);
+	read_until_ok();
+
+	/* daca ma intereseaza vreodata raspunsul serverului, in sectiunea asta
+	 * trebuie sa incep sa citesc ce mi se trimite
+	 */
+	
+	/* probabil Spring face close de unul singur, deci nu e neaparat nevoie
+	 * de CIPCLOSE
+	 */
+	USART0_print("AT+CIPCLOSE=0\r\n");
+	read_until_ok();
 }
 
 int main(void)
 {
-	/* activeaza intreruperi globale */
+	/* activate intreruperi globale */
 	sei();
 	
+	/* configurarea butonului de la PD6 ca intrare */
+	DDRB &= ~(1<<PB2);
+	/* configurarea rezistentei de pull-up a PB2 */
+	PORTB |= (1<<PB2);
+	
+	/* activare intrerupere pentru butonul PB2 */
+	PCICR |= (1<<PCIE1);
+	PCMSK1 |= (1<<PCINT10);
+	
 	LCD_init();
-	LCD_printAt(64, "Mihnea");
-    
+	USART0_init();
+    _delay_ms(1000);
+	
 	/* activare USER led */
 	DDRD |= (1 << PD7);
 	PORTD |= (1 << PD7);
@@ -52,15 +156,22 @@ int main(void)
 	DDRC |= (1 << PC2);
 	PORTC |= (1 << PC2);
 	
-	USART0_init();
-	_delay_ms(1000);
-
-    while(1) {
-	    /* Invers?m starea pinului. */
-	    PORTD ^= (1 << PD7);
-		
-		USART0_transmit('x');
-	    _delay_ms(2000);
-    }
+	
+	USART0_print("ATE0\r\n");
+	read_until_ok();
+	
+	USART0_print("AT+CIPMUX=1\r\n");
+	read_until_ok();
+	
+	USART0_print("AT+CIPSERVER=1,80\r\n");
+	read_until_ok();
+	
+	USART0_print("AT\r\n");
+	read_until_ok();
+	
+	LCD_printAt(0, "ok");
+	
+	while(1) {
+	}
 }
 
