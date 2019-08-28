@@ -17,8 +17,10 @@
 
 void send_request();
 
+/* intreruperile intre PCINT8 si PCINT15 */
 ISR(PCINT1_vect)
 {
+	/* verificam daca butonul BTN (atasat la PB2) este apasat */
 	if ((PINB & (1<<PB2)) == 0) {
 		/* Inversam starea pinului. */
 		PORTD ^= (1 << PD7);
@@ -42,7 +44,13 @@ int read_until_ok()
 	char v[5] = "";
 	int cnt = 0;
 	
-	while (1) {
+	/* incercam sa construim in v sirul "OK\r\n"
+	 * pun cate un caracter la finalul lui v si vad daca am obtinut sirul
+	 * daca am obtinut sirul, ma opresc
+	 * daca nu am obtinut sirul, shiftez la stanga toate caracterele cu o pozitie
+	 * _ _ _ O -> _ _ O K -> _ O K \r -> O K \r \n
+	 */
+	while (true) {
 		v[3] = USART0_receive();
 		cnt++;
 		
@@ -114,13 +122,16 @@ void send_request()
 {
 	char buf[64];
 	
+	/* initializarea unei noi conexiuni cu serverul de SpringBoot */
 	USART0_print("AT+CIPSTART=0,\"TCP\",\"192.168.4.3\",8080\r\n");
 	read_until_ok();
 	
+	/* initializeaza trimiterea unui request la serverul de SpringBoot */
 	sprintf(buf, "AT+CIPSEND=0,%d\r\n", REQUEST_LEN);
 	USART0_print(buf);
 	read_until_ok();
 	
+	/* trimiterea efectiva a requestului */
 	USART0_print(REQUEST);
 	/* citim pana la "SEND OK" */
 	read_until_ok();
@@ -141,16 +152,19 @@ int main(void)
 	/* activate intreruperi globale */
 	sei();
 	
-	/* configurarea butonului de la PD6 ca intrare */
+	/* configurarea butonului de la PB2 ca intrare */
 	DDRB &= ~(1<<PB2);
 	/* configurarea rezistentei de pull-up a PB2 */
 	PORTB |= (1<<PB2);
 	
-	/* activare intrerupere pentru butonul PB2 */
+	/* activare intreruperi pentru grupul PCINT1: PCINT8-PCINT15 */
 	PCICR |= (1<<PCIE1);
+	/* activare intrerupere pentru butonul PB2, adica PCINT10 */
 	PCMSK1 |= (1<<PCINT10);
 	
+	/* functii de biblioteca pentru initializare LCD */
 	LCD_init();
+	/* functii de biblioteca pentru initializare USART (comunicatie cu ESP) */
 	USART0_init();
     _delay_ms(1000);
 	
@@ -162,16 +176,19 @@ int main(void)
 	DDRC |= (1 << PC2);
 	PORTC |= (1 << PC2);
 	
-	
+	/* dezactivez echo pentru comenzile date spre ESP */
 	USART0_print("ATE0\r\n");
 	read_until_ok();
 	
+	/* permit conexiuni multiple la ESP (necesar pentru a porni serverul de ESP) */
 	USART0_print("AT+CIPMUX=1\r\n");
 	read_until_ok();
 	
+	/* pornesc serverul pe portul 80 */
 	USART0_print("AT+CIPSERVER=1,80\r\n");
 	read_until_ok();
 	
+	/* curatare output ESP; nu e necesara */
 	USART0_print("AT\r\n");
 	read_until_ok();
 	
@@ -181,10 +198,19 @@ int main(void)
 	char request[256] = "";
 	unsigned int cnt = 0;
 	
+	/*
+	 * un request HTTP va fi transmis noua de catre ESP conform urmatoarelor etape:
+	 * 0,CONNECT
+	 * REQUEST (terminat de /r/n/r/n)
+	 * 0,CLOSED
+	 */
 	while(1) {
+		/* astept sa se conecteze cineva la mine */
 		generic_read_until("CONNECT\r\n");
 		
+		/* ma duc pana la requestul efectiv HTTP (adica cererea de tipul GET /api?param=3 HTTP/1.1 */
 		generic_read_until("GET ");
+		/* salvez tot pathul in vectorul request */
 		while (1) {
 			char c = USART0_receive();
 			if (c != ' ') {
@@ -194,11 +220,14 @@ int main(void)
 			}
 		}
 		request[cnt] = '\0';
+		LCD_clear_bottom_line();
 		LCD_printAt(0, request);
 		cnt = 0;
 		
+		/* citesc si restul requestului HTTP, adica \r\n\r\n */
 		read_until_2crlf();
 		
+		/* astept sa se deconecteze de la mine inainte sa ma apuc de alt request */
 		generic_read_until("CLOSED\r\n");
 		
 		char v[10];
