@@ -4,6 +4,8 @@
 
 lcd.c
 
+adc.c
+
 main.c
 
 usart.c

@@ -14,8 +14,9 @@
 #include <stdlib.h>			/* Include standard library */
 #include <avr/interrupt.h>	/* Include avr interrupt header file */
 #include "usart.h"			/* Include USART header file */
+#include "adc.h"
 
-void send_request();
+void send_request(unsigned int grade, unsigned int lux, unsigned int umiditate);
 
 /* intreruperile intre PCINT8 si PCINT15 */
 ISR(PCINT1_vect)
@@ -25,7 +26,17 @@ ISR(PCINT1_vect)
 		/* Inversam starea pinului. */
 		PORTD ^= (1 << PD7);
 		
-		send_request();
+		double grade = adc_full_read_temperature();
+		double lux = adc_full_read_light();
+		double umiditate = adc_full_read_humidity();
+			
+		LCD_clear_bottom_line();
+			
+		char buf[32];
+		sprintf(buf, "%uC %uL %u%%", (unsigned int) grade, (unsigned int) lux, (unsigned int) umiditate);
+		LCD_printAt(64, buf);
+		
+		send_request(grade, lux, umiditate);
 	}
 }
 
@@ -112,27 +123,23 @@ int read_until_2crlf()
 	return 0;	
 }
 
-#define REQUEST \
-"GET /api/salut HTTP/1.1\r\n\
-Host: 192.168.4.3:8080\r\n\r\n"
-
-#define REQUEST_LEN strlen(REQUEST)
-
-void send_request()
+void send_request(unsigned int grade, unsigned int lux, unsigned int umiditate)
 {
-	char buf[64];
+	char buf[256];
+	char sendBuf[32];
+	sprintf(buf, "GET /api/sendData?temp=%u&light=%u&earthHum=%u HTTP/1.1\r\nHost: 192.168.4.3:8080\r\n\r\n", grade, lux, umiditate);
 	
 	/* initializarea unei noi conexiuni cu serverul de SpringBoot */
 	USART0_print("AT+CIPSTART=0,\"TCP\",\"192.168.4.3\",8080\r\n");
 	read_until_ok();
 	
 	/* initializeaza trimiterea unui request la serverul de SpringBoot */
-	sprintf(buf, "AT+CIPSEND=0,%d\r\n", REQUEST_LEN);
-	USART0_print(buf);
+	sprintf(sendBuf, "AT+CIPSEND=0,%d\r\n", strlen(buf));
+	USART0_print(sendBuf);
 	read_until_ok();
 	
 	/* trimiterea efectiva a requestului */
-	USART0_print(REQUEST);
+	USART0_print(buf);
 	/* citim pana la "SEND OK" */
 	read_until_ok();
 
@@ -166,6 +173,10 @@ int main(void)
 	LCD_init();
 	/* functii de biblioteca pentru initializare USART (comunicatie cu ESP) */
 	USART0_init();
+	/* functii de biblioteca pentru initializare ADC (colectare date de la cei 3 senzori) */
+	adc_init();
+	
+	/* lasam ragaz controllerului pt a se stabiliza toate initializarile facute de noi */
     _delay_ms(1000);
 	
 	/* activare USER led */
@@ -194,7 +205,6 @@ int main(void)
 	
 	LCD_printAt(0, "ok");
 	
-	int i = 0;
 	char request[256] = "";
 	unsigned int cnt = 0;
 	
@@ -209,7 +219,7 @@ int main(void)
 		generic_read_until("CONNECT\r\n");
 		
 		/* ma duc pana la requestul efectiv HTTP (adica cererea de tipul GET /api?param=3 HTTP/1.1 */
-		generic_read_until("GET ");
+		generic_read_until("GET /");
 		/* salvez tot pathul in vectorul request */
 		while (1) {
 			char c = USART0_receive();
@@ -220,7 +230,7 @@ int main(void)
 			}
 		}
 		request[cnt] = '\0';
-		LCD_clear_bottom_line();
+		LCD_clear_top_line();
 		LCD_printAt(0, request);
 		cnt = 0;
 		
@@ -230,10 +240,6 @@ int main(void)
 		/* astept sa se deconecteze de la mine inainte sa ma apuc de alt request */
 		generic_read_until("CLOSED\r\n");
 		
-		char v[10];
-		i++;
-		sprintf(v, "%d", i);
-		LCD_printAt(64, v);
 	}
 }
 
