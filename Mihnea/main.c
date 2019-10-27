@@ -237,6 +237,8 @@ int main(void)
 		/* citesc si restul requestului HTTP, adica \r\n\r\n */
 		read_until_2crlf();
 		
+		USART0_print("AT+CIPCLOSE=0\r\n");
+		
 		/* astept sa se deconecteze de la mine inainte sa ma apuc de alt request */
 		generic_read_until("CLOSED\r\n");
 		
